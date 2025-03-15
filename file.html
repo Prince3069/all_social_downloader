@@ -1,0 +1,2223 @@
+// Project Structure Overview
+/*
+my_downloader_app/
+├── android/
+├── ios/
+├── lib/
+│   ├── main.dart
+│   ├── app.dart
+│   ├── models/
+│   │   ├── download_item.dart
+│   │   ├── social_media_platform.dart
+│   │   └── status_item.dart
+│   ├── services/
+│   │   ├── download_service.dart
+│   │   ├── storage_service.dart
+│   │   ├── notification_service.dart
+│   │   ├── permission_service.dart
+│   │   └── platform_services/
+│   │       ├── whatsapp_service.dart
+│   │       ├── instagram_service.dart
+│   │       ├── tiktok_service.dart
+│   │       ├── facebook_service.dart
+│   │       ├── twitter_service.dart
+│   │       └── youtube_service.dart
+│   ├── ui/
+│   │   ├── screens/
+│   │   │   ├── home_screen.dart
+│   │   │   ├── settings_screen.dart
+│   │   │   ├── downloads_screen.dart
+│   │   │   └── whatsapp_status_screen.dart
+│   │   ├── widgets/
+│   │   │   ├── download_button_overlay.dart
+│   │   │   ├── mini_player_window.dart
+│   │   │   ├── social_media_card.dart
+│   │   │   ├── download_progress_indicator.dart
+│   │   │   └── ad_container.dart
+│   │   └── themes/
+│   │       └── app_theme.dart
+│   ├── utils/
+│   │   ├── constants.dart
+│   │   ├── url_extractor.dart
+│   │   └── file_utils.dart
+│   └── providers/
+│       ├── download_provider.dart
+│       └── settings_provider.dart
+├── pubspec.yaml
+└── README.md
+*/
+
+// main.dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'app.dart';
+import 'providers/download_provider.dart';
+import 'providers/settings_provider.dart';
+import 'services/notification_service.dart';
+import 'services/permission_service.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize services
+  await NotificationService().init();
+  await PermissionService().requestRequiredPermissions();
+  
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => DownloadProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
+}
+
+// app.dart
+import 'package:flutter/material.dart';
+import 'ui/screens/home_screen.dart';
+import 'ui/themes/app_theme.dart';
+
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Status & Video Downloader',
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.system,
+      home: const HomeScreen(),
+    );
+  }
+}
+
+// models/download_item.dart
+class DownloadItem {
+  final String id;
+  final String url;
+  final String fileName;
+  final String thumbnailUrl;
+  final String sourceApp;
+  final DateTime dateAdded;
+  final String localPath;
+  final DownloadStatus status;
+  final double progress;
+
+  DownloadItem({
+    required this.id,
+    required this.url,
+    required this.fileName,
+    required this.thumbnailUrl,
+    required this.sourceApp,
+    required this.dateAdded,
+    this.localPath = '',
+    this.status = DownloadStatus.pending,
+    this.progress = 0.0,
+  });
+
+  DownloadItem copyWith({
+    String? localPath,
+    DownloadStatus? status,
+    double? progress,
+  }) {
+    return DownloadItem(
+      id: this.id,
+      url: this.url,
+      fileName: this.fileName,
+      thumbnailUrl: this.thumbnailUrl,
+      sourceApp: this.sourceApp,
+      dateAdded: this.dateAdded,
+      localPath: localPath ?? this.localPath,
+      status: status ?? this.status,
+      progress: progress ?? this.progress,
+    );
+  }
+}
+
+enum DownloadStatus {
+  pending,
+  downloading,
+  completed,
+  failed,
+  canceled
+}
+
+// models/social_media_platform.dart
+class SocialMediaPlatform {
+  final String id;
+  final String name;
+  final String icon;
+  final String packageName;
+  final bool isSupported;
+
+  const SocialMediaPlatform({
+    required this.id,
+    required this.name,
+    required this.icon,
+    required this.packageName,
+    this.isSupported = true,
+  });
+}
+
+// models/status_item.dart
+class StatusItem {
+  final String id;
+  final String path;
+  final bool isVideo;
+  final DateTime createdAt;
+  final bool isDownloaded;
+
+  StatusItem({
+    required this.id,
+    required this.path,
+    required this.isVideo,
+    required this.createdAt,
+    this.isDownloaded = false,
+  });
+}
+
+// services/download_service.dart
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import '../models/download_item.dart';
+import '../utils/url_extractor.dart';
+import 'storage_service.dart';
+import 'platform_services/instagram_service.dart';
+import 'platform_services/facebook_service.dart';
+import 'platform_services/tiktok_service.dart';
+import 'platform_services/twitter_service.dart';
+import 'platform_services/youtube_service.dart';
+
+class DownloadService {
+  final StorageService _storageService = StorageService();
+  final InstagramService _instagramService = InstagramService();
+  final FacebookService _facebookService = FacebookService();
+  final TikTokService _tiktokService = TikTokService();
+  final TwitterService _twitterService = TwitterService();
+  final YouTubeService _youtubeService = YouTubeService();
+
+  Future<DownloadItem> downloadMedia(String url) async {
+    // Extract information about the media
+    final platform = UrlExtractor.detectPlatform(url);
+    
+    // Create download item
+    String uniqueId = DateTime.now().millisecondsSinceEpoch.toString();
+    DownloadItem item = DownloadItem(
+      id: uniqueId,
+      url: url,
+      fileName: 'download_$uniqueId.mp4',
+      thumbnailUrl: '',
+      sourceApp: platform,
+      dateAdded: DateTime.now(),
+    );
+    
+    // Get download URL based on platform
+    String downloadUrl = '';
+    switch (platform) {
+      case 'instagram':
+        downloadUrl = await _instagramService.getDownloadUrl(url);
+        break;
+      case 'facebook':
+        downloadUrl = await _facebookService.getDownloadUrl(url);
+        break;
+      case 'tiktok':
+        downloadUrl = await _tiktokService.getDownloadUrl(url);
+        break;
+      case 'twitter':
+        downloadUrl = await _twitterService.getDownloadUrl(url);
+        break;
+      case 'youtube':
+        downloadUrl = await _youtubeService.getDownloadUrl(url);
+        break;
+      default:
+        downloadUrl = url;
+    }
+    
+    // Start download
+    try {
+      final filePath = await _storageService.downloadFile(
+        downloadUrl,
+        item.fileName,
+        (progress) {
+          // Update progress callback
+          item = item.copyWith(
+            progress: progress,
+            status: DownloadStatus.downloading,
+          );
+        }
+      );
+      
+      return item.copyWith(
+        localPath: filePath,
+        status: DownloadStatus.completed,
+        progress: 1.0,
+      );
+    } catch (e) {
+      return item.copyWith(status: DownloadStatus.failed);
+    }
+  }
+}
+
+// services/storage_service.dart
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../models/status_item.dart';
+
+class StorageService {
+  Future<String> get _downloadsDirectory async {
+    if (Platform.isAndroid) {
+      Directory? directory = await getExternalStorageDirectory();
+      return '${directory!.path}/Downloads';
+    } else {
+      Directory directory = await getApplicationDocumentsDirectory();
+      return '${directory.path}/Downloads';
+    }
+  }
+
+  Future<String> downloadFile(
+    String url, 
+    String fileName, 
+    Function(double) onProgress
+  ) async {
+    final directory = await _downloadsDirectory;
+    final filePath = '$directory/$fileName';
+    final file = File(filePath);
+    
+    // Create directory if it doesn't exist
+    if (!await Directory(directory).exists()) {
+      await Directory(directory).create(recursive: true);
+    }
+    
+    // Download logic
+    // (Simplified for brevity, would use dio or http package with progress)
+    try {
+      // Simulated download for code sample
+      for (int i = 0; i < 10; i++) {
+        await Future.delayed(Duration(milliseconds: 100));
+        onProgress(i / 10);
+      }
+      
+      // In actual implementation, use:
+      // final response = await Dio().download(url, filePath,
+      //   onReceiveProgress: (received, total) {
+      //     onProgress(received / total);
+      //   }
+      // );
+      
+      onProgress(1.0);
+      return filePath;
+    } catch (e) {
+      throw Exception('Download failed: $e');
+    }
+  }
+  
+  Future<List<StatusItem>> getWhatsAppStatuses() async {
+    // Path where WhatsApp stores status
+    String statusPath = '/storage/emulated/0/WhatsApp/Media/.Statuses';
+    
+    if (!await Directory(statusPath).exists()) {
+      statusPath = '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/.Statuses';
+      if (!await Directory(statusPath).exists()) {
+        return [];
+      }
+    }
+    
+    final List<FileSystemEntity> files = Directory(statusPath).listSync();
+    final List<StatusItem> statuses = [];
+    
+    for (FileSystemEntity file in files) {
+      if (file is File) {
+        final String path = file.path;
+        final bool isVideo = path.endsWith('.mp4');
+        
+        if (isVideo || path.endsWith('.jpg') || path.endsWith('.png')) {
+          statuses.add(StatusItem(
+            id: path.split('/').last,
+            path: path,
+            isVideo: isVideo,
+            createdAt: file.statSync().modified,
+          ));
+        }
+      }
+    }
+    
+    return statuses;
+  }
+  
+  Future<String> saveStatus(StatusItem status) async {
+    final sourceFile = File(status.path);
+    final directory = await _downloadsDirectory;
+    final fileName = status.path.split('/').last;
+    final destinationPath = '$directory/$fileName';
+    
+    await sourceFile.copy(destinationPath);
+    return destinationPath;
+  }
+}
+
+// services/notification_service.dart
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+class NotificationService {
+  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  Future<void> init() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    
+    const DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings();
+    
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+    
+    await _notificationsPlugin.initialize(initializationSettings);
+  }
+
+  Future<void> showDownloadNotification({
+    required int id,
+    required String title,
+    required String body,
+    required bool isComplete,
+  }) async {
+    AndroidNotificationDetails androidDetails = const AndroidNotificationDetails(
+      'download_channel',
+      'Downloads',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      showProgress: false,
+    );
+    
+    NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+    
+    await _notificationsPlugin.show(
+      id,
+      title,
+      body,
+      platformDetails,
+    );
+  }
+  
+  Future<void> showDownloadProgressNotification({
+    required int id,
+    required String title,
+    required double progress,
+  }) async {
+    AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'download_progress_channel',
+      'Download Progress',
+      channelShowBadge: false,
+      importance: Importance.low,
+      priority: Priority.low,
+      onlyAlertOnce: true,
+      showProgress: true,
+      maxProgress: 100,
+      progress: (progress * 100).toInt(),
+    );
+    
+    NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+    
+    await _notificationsPlugin.show(
+      id,
+      title,
+      'Downloading: ${(progress * 100).toInt()}%',
+      platformDetails,
+    );
+  }
+}
+
+// services/permission_service.dart
+import 'package:permission_handler/permission_handler.dart';
+
+class PermissionService {
+  Future<bool> requestRequiredPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.storage,
+      Permission.accessMediaLocation,
+      Permission.manageExternalStorage,
+      Permission.systemAlertWindow, // For overlay
+    ].request();
+    
+    return statuses.values.every((status) => status.isGranted);
+  }
+  
+  Future<bool> checkOverlayPermission() async {
+    return await Permission.systemAlertWindow.isGranted;
+  }
+  
+  Future<bool> requestOverlayPermission() async {
+    if (await Permission.systemAlertWindow.isGranted) {
+      return true;
+    } else {
+      final status = await Permission.systemAlertWindow.request();
+      return status.isGranted;
+    }
+  }
+}
+
+// services/platform_services/whatsapp_service.dart
+import 'dart:io';
+import '../../models/status_item.dart';
+
+class WhatsAppService {
+  final String _statusPath = '/storage/emulated/0/WhatsApp/Media/.Statuses';
+  final String _businessStatusPath = '/storage/emulated/0/WhatsApp Business/Media/.Statuses';
+  final String _alternateStatusPath = '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/.Statuses';
+  final String _alternateBusinessStatusPath = '/storage/emulated/0/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.Statuses';
+
+  // services/platform_services/whatsapp_service.dart (continued)
+  Future<List<StatusItem>> getStatuses({bool isBusinessWhatsApp = false}) async {
+    String statusPath = isBusinessWhatsApp ? _businessStatusPath : _statusPath;
+    String alternateStatusPath = isBusinessWhatsApp ? _alternateBusinessStatusPath : _alternateStatusPath;
+    
+    if (!await Directory(statusPath).exists()) {
+      statusPath = alternateStatusPath;
+      if (!await Directory(statusPath).exists()) {
+        return [];
+      }
+    }
+    
+    final List<FileSystemEntity> files = Directory(statusPath).listSync();
+    final List<StatusItem> statuses = [];
+    
+    for (FileSystemEntity file in files) {
+      if (file is File) {
+        final String path = file.path;
+        final bool isVideo = path.endsWith('.mp4');
+        
+        if (isVideo || path.endsWith('.jpg') || path.endsWith('.png')) {
+          statuses.add(StatusItem(
+            id: path.split('/').last,
+            path: path,
+            isVideo: isVideo,
+            createdAt: file.statSync().modified,
+          ));
+        }
+      }
+    }
+    
+    return statuses;
+  }
+  
+  Future<bool> isWhatsAppInstalled() async {
+    // In a real app, would check if WhatsApp is installed
+    return true;
+  }
+}
+
+// services/platform_services/instagram_service.dart
+class InstagramService {
+  Future<String> getDownloadUrl(String shareUrl) async {
+    // In a real implementation, this would make API calls to extract the direct download URL
+    // For this example, we'll just return a placeholder
+    return 'https://example.com/instagram_video.mp4';
+  }
+  
+  Future<Map<String, dynamic>> getMediaInfo(String url) async {
+    // Would extract media information including thumbnail, title, etc.
+    return {
+      'title': 'Instagram Post',
+      'thumbnail': 'https://example.com/thumb.jpg',
+      'isVideo': true,
+    };
+  }
+}
+
+// services/platform_services/tiktok_service.dart
+class TikTokService {
+  Future<String> getDownloadUrl(String shareUrl) async {
+    // Would extract the direct download URL
+    return 'https://example.com/tiktok_video.mp4';
+  }
+  
+  Future<Map<String, dynamic>> getMediaInfo(String url) async {
+    return {
+      'title': 'TikTok Video',
+      'thumbnail': 'https://example.com/thumb.jpg',
+      'isVideo': true,
+    };
+  }
+}
+
+// services/platform_services/facebook_service.dart
+class FacebookService {
+  Future<String> getDownloadUrl(String shareUrl) async {
+    // Would extract the direct download URL
+    return 'https://example.com/facebook_video.mp4';
+  }
+  
+  Future<Map<String, dynamic>> getMediaInfo(String url) async {
+    return {
+      'title': 'Facebook Video',
+      'thumbnail': 'https://example.com/thumb.jpg',
+      'isVideo': true,
+    };
+  }
+}
+
+// services/platform_services/twitter_service.dart
+class TwitterService {
+  Future<String> getDownloadUrl(String shareUrl) async {
+    // Would extract the direct download URL
+    return 'https://example.com/twitter_video.mp4';
+  }
+  
+  Future<Map<String, dynamic>> getMediaInfo(String url) async {
+    return {
+      'title': 'Twitter Video',
+      'thumbnail': 'https://example.com/thumb.jpg',
+      'isVideo': true,
+    };
+  }
+}
+
+// services/platform_services/youtube_service.dart
+class YouTubeService {
+  Future<String> getDownloadUrl(String shareUrl) async {
+    // Would extract the direct download URL
+    return 'https://example.com/youtube_video.mp4';
+  }
+  
+  Future<Map<String, dynamic>> getMediaInfo(String url) async {
+    return {
+      'title': 'YouTube Video',
+      'thumbnail': 'https://example.com/thumb.jpg',
+      'isVideo': true,
+      'formats': [
+        {'quality': '720p', 'url': 'https://example.com/720p.mp4'},
+        {'quality': '480p', 'url': 'https://example.com/480p.mp4'},
+        {'quality': '360p', 'url': 'https://example.com/360p.mp4'},
+      ]
+    };
+  }
+}
+
+// ui/screens/home_screen.dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../widgets/social_media_card.dart';
+import '../../models/social_media_platform.dart';
+import '../../providers/download_provider.dart';
+import 'downloads_screen.dart';
+import 'whatsapp_status_screen.dart';
+import 'settings_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
+
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final TextEditingController _urlController = TextEditingController();
+  int _currentIndex = 0;
+  
+  final List<Widget> _screens = [
+    const HomeContent(),
+    const WhatsAppStatusScreen(),
+    const DownloadsScreen(),
+    const SettingsScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Status & Video Downloader'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              // Show about dialog
+            },
+          ),
+        ],
+      ),
+      body: _screens[_currentIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.whatshot),
+            label: 'WhatsApp',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.download),
+            label: 'Downloads',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HomeContent extends StatefulWidget {
+  const HomeContent({Key? key}) : super(key: key);
+
+  @override
+  _HomeContentState createState() => _HomeContentState();
+}
+
+class _HomeContentState extends State<HomeContent> {
+  final TextEditingController _urlController = TextEditingController();
+  
+  final List<SocialMediaPlatform> platforms = [
+    const SocialMediaPlatform(
+      id: 'instagram',
+      name: 'Instagram',
+      icon: 'assets/icons/instagram.png',
+      packageName: 'com.instagram.android',
+    ),
+    const SocialMediaPlatform(
+      id: 'facebook',
+      name: 'Facebook',
+      icon: 'assets/icons/facebook.png',
+      packageName: 'com.facebook.katana',
+    ),
+    const SocialMediaPlatform(
+      id: 'tiktok',
+      name: 'TikTok',
+      icon: 'assets/icons/tiktok.png',
+      packageName: 'com.zhiliaoapp.musically',
+    ),
+    const SocialMediaPlatform(
+      id: 'twitter',
+      name: 'Twitter',
+      icon: 'assets/icons/twitter.png',
+      packageName: 'com.twitter.android',
+    ),
+    const SocialMediaPlatform(
+      id: 'youtube',
+      name: 'YouTube',
+      icon: 'assets/icons/youtube.png',
+      packageName: 'com.google.android.youtube',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // URL input
+            TextField(
+              controller: _urlController,
+              decoration: InputDecoration(
+                labelText: 'Paste video URL',
+                hintText: 'https://...',
+                border: OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(Icons.paste),
+                  onPressed: () async {
+                    // Paste from clipboard
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Download button
+            ElevatedButton.icon(
+              icon: const Icon(Icons.download),
+              label: const Text('Download'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              onPressed: () {
+                if (_urlController.text.isNotEmpty) {
+                  Provider.of<DownloadProvider>(context, listen: false)
+                      .downloadFromUrl(_urlController.text);
+                  _urlController.clear();
+                }
+              },
+            ),
+            
+            const SizedBox(height: 24),
+            const Text(
+              'Supported Platforms',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            
+            // Platform grid
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+              ),
+              itemCount: platforms.length,
+              itemBuilder: (context, index) {
+                return SocialMediaCard(
+                  platform: platforms[index],
+                  onTap: () {
+                    // Open app
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ui/screens/whatsapp_status_screen.dart
+import 'package:flutter/material.dart';
+import '../../models/status_item.dart';
+import '../../services/storage_service.dart';
+import '../widgets/ad_container.dart';
+
+class WhatsAppStatusScreen extends StatefulWidget {
+  const WhatsAppStatusScreen({Key? key}) : super(key: key);
+
+  @override
+  _WhatsAppStatusScreenState createState() => _WhatsAppStatusScreenState();
+}
+
+class _WhatsAppStatusScreenState extends State<WhatsAppStatusScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final StorageService _storageService = StorageService();
+  List<StatusItem> _statuses = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _loadStatuses();
+  }
+
+  Future<void> _loadStatuses() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      final statuses = await _storageService.getWhatsAppStatuses();
+      setState(() {
+        _statuses = statuses;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('WhatsApp Status'),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'IMAGES'),
+            Tab(text: 'VIDEOS'),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadStatuses,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                // Images tab
+                _buildStatusGrid(false),
+                // Videos tab
+                _buildStatusGrid(true),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildStatusGrid(bool isVideo) {
+    final filteredStatuses = _statuses.where((status) => status.isVideo == isVideo).toList();
+    
+    if (filteredStatuses.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.warning_amber_rounded, size: 48, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text(
+              'No statuses found',
+              style: TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Check permissions or view some statuses first',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: _loadStatuses,
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return Column(
+      children: [
+        const AdContainer(height: 60),
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.all(8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: filteredStatuses.length,
+            itemBuilder: (context, index) {
+              final status = filteredStatuses[index];
+              return _buildStatusItem(status);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusItem(StatusItem status) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: status.isVideo
+              ? _buildVideoThumbnail(status)
+              : Image.file(
+                  File(status.path),
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.broken_image, size: 48),
+                    );
+                  },
+                ),
+        ),
+        Positioned(
+          bottom: 8,
+          right: 8,
+          child: CircleAvatar(
+            backgroundColor: Colors.black.withOpacity(0.7),
+            radius: 16,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              icon: const Icon(Icons.download, size: 18, color: Colors.white),
+              onPressed: () => _downloadStatus(status),
+            ),
+          ),
+        ),
+        if (status.isVideo)
+          Positioned(
+            top: 8,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Icon(Icons.play_arrow, size: 16, color: Colors.white),
+              ),
+            ),
+        ],
+      );
+    }
+  
+    Widget _buildVideoThumbnail(StatusItem status) {
+      // In real implementation, would use a video thumbnail generator
+      return Container(
+        color: Colors.black,
+        child: const Center(
+          child: Icon(
+            Icons.play_circle_fill,
+            size: 48,
+            color: Colors.white70,
+          ),
+        ),
+      );
+    }
+  
+    Future<void> _downloadStatus(StatusItem status) async {
+      try {
+        final path = await _storageService.saveStatus(status);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saved to $path'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to save status'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+  
+  // ui/screens/downloads_screen.dart
+  import 'package:flutter/material.dart';
+  import 'package:provider/provider.dart';
+  import '../../providers/download_provider.dart';
+  import '../../models/download_item.dart';
+  
+  class DownloadsScreen extends StatelessWidget {
+    const DownloadsScreen({Key? key}) : super(key: key);
+  
+    @override
+    Widget build(BuildContext context) {
+      return DefaultTabController(
+        length: 3,
+        child: Scaffold(
+          appBar: AppBar(
+            title: const Text('My Downloads'),
+            bottom: const TabBar(
+              tabs: [
+                Tab(text: 'ALL'),
+                Tab(text: 'VIDEOS'),
+                Tab(text: 'IMAGES'),
+              ],
+            ),
+          ),
+          body: Consumer<DownloadProvider>(
+            builder: (context, provider, child) {
+              if (provider.downloads.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.download_done_rounded, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No downloads yet',
+                        style: TextStyle(fontSize: 18, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Downloads will appear here',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              }
+  
+              return TabBarView(
+                children: [
+                  // All downloads tab
+                  _buildDownloadsList(provider.downloads),
+                  // Videos tab
+                  _buildDownloadsList(provider.downloads.where((item) => 
+                    item.fileName.endsWith('.mp4') || 
+                    item.fileName.endsWith('.mov')
+                  ).toList()),
+                  // Images tab
+                  _buildDownloadsList(provider.downloads.where((item) => 
+                    item.fileName.endsWith('.jpg') || 
+                    item.fileName.endsWith('.jpeg') ||
+                    item.fileName.endsWith('.png')
+                  ).toList()),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
+  
+    Widget _buildDownloadsList(List<DownloadItem> downloads) {
+      if (downloads.isEmpty) {
+        return const Center(
+          child: Text('No items in this category'),
+        );
+      }
+  
+      return ListView.builder(
+        itemCount: downloads.length,
+        itemBuilder: (context, index) {
+          final item = downloads[index];
+          return ListTile(
+            leading: _buildItemLeading(item),
+            title: Text(item.fileName),
+            subtitle: Text('${item.sourceApp} • ${_formatDate(item.dateAdded)}'),
+            trailing: _buildItemTrailing(context, item),
+            onTap: () {
+              // Open file
+            },
+          );
+        },
+      );
+    }
+  
+    Widget _buildItemLeading(DownloadItem item) {
+      if (item.thumbnailUrl.isNotEmpty) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.network(
+            item.thumbnailUrl,
+            width: 60,
+            height: 60,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return _buildDefaultThumbnail(item);
+            },
+          ),
+        );
+      }
+      return _buildDefaultThumbnail(item);
+    }
+  
+    Widget _buildDefaultThumbnail(DownloadItem item) {
+      IconData iconData = Icons.insert_drive_file;
+      
+      if (item.fileName.endsWith('.mp4') || item.fileName.endsWith('.mov')) {
+        iconData = Icons.video_file;
+      } else if (item.fileName.endsWith('.jpg') || 
+                 item.fileName.endsWith('.jpeg') || 
+                 item.fileName.endsWith('.png')) {
+        iconData = Icons.image;
+      }
+      
+      return Container(
+        width: 60,
+        height: 60,
+        color: Colors.grey[300],
+        child: Center(
+          child: Icon(iconData, size: 32),
+        ),
+      );
+    }
+  
+    Widget _buildItemTrailing(BuildContext context, DownloadItem item) {
+      switch (item.status) {
+        case DownloadStatus.pending:
+          return IconButton(
+            icon: const Icon(Icons.download),
+            onPressed: () {
+              // Start download
+            },
+          );
+        case DownloadStatus.downloading:
+          return SizedBox(
+            width: 40,
+            height: 40,
+            child: Stack(
+              children: [
+                CircularProgressIndicator(
+                  value: item.progress,
+                  strokeWidth: 2,
+                ),
+                Center(
+                  child: IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    onPressed: () {
+                      // Cancel download
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        case DownloadStatus.completed:
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.share),
+                onPressed: () {
+                  // Share file
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.more_vert),
+                onPressed: () {
+                  // Show options
+                },
+              ),
+            ],
+          );
+        case DownloadStatus.failed:
+          return IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.red),
+            onPressed: () {
+              // Retry download
+            },
+          );
+        default:
+          return const SizedBox.shrink();
+      }
+    }
+  
+    String _formatDate(DateTime date) {
+      return '${date.day}/${date.month}/${date.year}';
+    }
+  }
+  
+  // ui/screens/settings_screen.dart
+  import 'package:flutter/material.dart';
+  import 'package:provider/provider.dart';
+  import '../../providers/settings_provider.dart';
+  import '../../services/permission_service.dart';
+  
+  class SettingsScreen extends StatelessWidget {
+    const SettingsScreen({Key? key}) : super(key: key);
+  
+    @override
+    Widget build(BuildContext context) {
+      final PermissionService _permissionService = PermissionService();
+      
+      return Scaffold(
+        body: Consumer<SettingsProvider>(
+          builder: (context, settings, child) {
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // Storage section
+                const ListTile(
+                  title: Text(
+                    'Storage',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.folder),
+                  title: const Text('Download Location'),
+                  subtitle: Text(settings.downloadPath),
+                  onTap: () {
+                    // Change download location
+                  },
+                ),
+                
+                const Divider(),
+                
+                // Permissions section
+                const ListTile(
+                  title: Text(
+                    'Permissions',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.storage),
+                  title: const Text('Storage Permission'),
+                  trailing: FutureBuilder<bool>(
+                    future: _permissionService.requestRequiredPermissions(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        );
+                      }
+                      return Icon(
+                        snapshot.data == true ? Icons.check_circle : Icons.error,
+                        color: snapshot.data == true ? Colors.green : Colors.red,
+                      );
+                    },
+                  ),
+                  onTap: () async {
+                    await _permissionService.requestRequiredPermissions();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.window),
+                  title: const Text('Overlay Permission'),
+                  subtitle: const Text('Required for popup download button'),
+                  trailing: FutureBuilder<bool>(
+                    future: _permissionService.checkOverlayPermission(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        );
+                      }
+                      return Icon(
+                        snapshot.data == true ? Icons.check_circle : Icons.error,
+                        color: snapshot.data == true ? Colors.green : Colors.red,
+                      );
+                    },
+                  ),
+                  onTap: () async {
+                    await _permissionService.requestOverlayPermission();
+                  },
+                ),
+                
+                const Divider(),
+                
+                // App settings
+                const ListTile(
+                  title: Text(
+                    'App Settings',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications),
+                  title: const Text('Download Notifications'),
+                  subtitle: const Text('Show notifications when download completes'),
+                  value: settings.showNotifications,
+                  onChanged: (value) {
+                    settings.setShowNotifications(value);
+                  },
+                ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.auto_fix_high),
+                  title: const Text('Auto-detect links'),
+                  subtitle: const Text('Detect video links from clipboard'),
+                  value: settings.autoDetectLinks,
+                  onChanged: (value) {
+                    settings.setAutoDetectLinks(value);
+                  },
+                ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.window),
+                  title: const Text('Show Floating Button'),
+                  subtitle: const Text('Display download button in other apps'),
+                  value: settings.showFloatingButton,
+                  onChanged: (value) {
+                    settings.setShowFloatingButton(value);
+                  },
+                ),
+                
+                const Divider(),
+                
+                // About section
+                const ListTile(
+                  title: Text(
+                    'About',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.info),
+                  title: const Text('Version'),
+                  subtitle: const Text('1.0.0'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.privacy_tip),
+                  title: const Text('Privacy Policy'),
+                  onTap: () {
+                    // Open privacy policy
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.star),
+                  title: const Text('Rate App'),
+                  onTap: () {
+                    // Open app store page
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    }
+  }
+  
+  // ui/widgets/download_button_overlay.dart
+  import 'package:flutter/material.dart';
+  import 'package:provider/provider.dart';
+  import '../../providers/download_provider.dart';
+  import 'mini_player_window.dart';
+  import 'ad_container.dart';
+  
+  class DownloadButtonOverlay extends StatefulWidget {
+    const DownloadButtonOverlay({Key? key}) : super(key: key);
+  
+    @override
+    _DownloadButtonOverlayState createState() => _DownloadButtonOverlayState();
+  }
+  
+  class _DownloadButtonOverlayState extends State<DownloadButtonOverlay> {
+    bool _isExpanded = false;
+    Offset _position = const Offset(20, 100);
+  
+    @override
+    Widget build(BuildContext context) {
+      // This would be an overlay shown over other apps
+      return Stack(
+        children: [
+          // Draggable button
+          Positioned(
+            left: _position.dx,
+            top: _position.dy,
+            child: Draggable(
+              feedback: _buildButton(),
+              childWhenDragging: Container(),
+              onDragEnd: (details) {
+                setState(() {
+                  _position = details.offset;
+                });
+              },
+              child: _buildButton(),
+            ),
+          ),
+          
+          // Expanded panel when button is tapped
+          if (_isExpanded)
+            Positioned(
+              left: 20,
+              bottom: 100,
+              right: 20,
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Download Detected Media',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 16),
+                      // Ad container
+                      const AdContainer(height: 60),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.download),
+                            label: const Text('Download'),
+                            onPressed: () {
+                              // Start download
+                              _handleDownload();
+                              setState(() {
+                                _isExpanded = false;
+                              });
+                            },
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.close),
+                            label: const Text('Cancel'),
+                            onPressed: () {
+                              setState(() {
+                                _isExpanded = false;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+  
+    Widget _buildButton() {
+      return GestureDetector(
+        onTap: () {
+          setState(() {
+            _isExpanded = !_isExpanded;
+          });
+        },
+        child: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            color: Theme.of(context).primaryColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Icon(
+          Icons.download,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+    );
+  }
+
+  void _handleDownload() {
+    // This would be triggered when the user taps the download button
+    // In a real app, this would extract the URL from the current app/context
+    const url = 'https://example.com/sample_video.mp4';
+    Provider.of<DownloadProvider>(context, listen: false).downloadFromUrl(url);
+    
+    // Show mini player window
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const MiniPlayerWindow(),
+    );
+  }
+}
+
+// ui/widgets/mini_player_window.dart
+import 'package:flutter/material.dart';
+import 'ad_container.dart';
+
+class MiniPlayerWindow extends StatefulWidget {
+  const MiniPlayerWindow({Key? key}) : super(key: key);
+
+  @override
+  _MiniPlayerWindowState createState() => _MiniPlayerWindowState();
+}
+
+class _MiniPlayerWindowState extends State<MiniPlayerWindow> {
+  double _progress = 0.0;
+  bool _isComplete = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    _simulateDownload();
+  }
+  
+  Future<void> _simulateDownload() async {
+    // This simulates a download progress
+    for (int i = 0; i <= 100; i += 10) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() {
+          _progress = i / 100;
+        });
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _isComplete = true;
+      });
+    }
+    
+    // Auto close after 3 seconds
+    await Future.delayed(const Duration(seconds: 3));
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        width: 300,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Colors.blue,
+                  child: Icon(Icons.download, color: Colors.white),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isComplete ? 'Download Complete' : 'Downloading...',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text('video.mp4'),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Progress bar
+            if (!_isComplete)
+              LinearProgressIndicator(value: _progress),
+            
+            const SizedBox(height: 16),
+            
+            // Ad container
+            const AdContainer(height: 60),
+            
+            const SizedBox(height: 16),
+            
+            // Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                if (_isComplete)
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.play_arrow),
+                    label: const Text('Play'),
+                    onPressed: () {
+                      // Play the downloaded video
+                      Navigator.of(context).pop();
+                    },
+                  )
+                else
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.cancel),
+                    label: const Text('Cancel'),
+                    onPressed: () {
+                      // Cancel download
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                  
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.folder),
+                  label: const Text('Downloads'),
+                  onPressed: () {
+                    // Navigate to downloads screen
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ui/widgets/social_media_card.dart
+import 'package:flutter/material.dart';
+import '../../models/social_media_platform.dart';
+
+class SocialMediaCard extends StatelessWidget {
+  final SocialMediaPlatform platform;
+  final VoidCallback onTap;
+
+  const SocialMediaCard({
+    Key? key,
+    required this.platform,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Icon would be loaded from assets in a real app
+              Icon(
+                _getPlatformIcon(platform.id),
+                size: 36,
+                color: _getPlatformColor(platform.id),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                platform.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _getPlatformIcon(String platformId) {
+    switch (platformId) {
+      case 'instagram':
+        return Icons.camera_alt;
+      case 'facebook':
+        return Icons.facebook;
+      case 'tiktok':
+        return Icons.music_note;
+      case 'twitter':
+        return Icons.tag;
+      case 'youtube':
+        return Icons.play_arrow;
+      default:
+        return Icons.public;
+    }
+  }
+
+  Color _getPlatformColor(String platformId) {
+    switch (platformId) {
+      case 'instagram':
+        return Colors.pink;
+      case 'facebook':
+        return Colors.blue;
+      case 'tiktok':
+        return Colors.black;
+      case 'twitter':
+        return Colors.lightBlue;
+      case 'youtube':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// ui/widgets/download_progress_indicator.dart
+import 'package:flutter/material.dart';
+import '../../models/download_item.dart';
+
+class DownloadProgressIndicator extends StatelessWidget {
+  final DownloadItem item;
+  final VoidCallback onCancel;
+
+  const DownloadProgressIndicator({
+    Key? key,
+    required this.item,
+    required this.onCancel,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.fileName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: onCancel,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: item.progress,
+            backgroundColor: Colors.grey[300],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${(item.progress * 100).toInt()}%',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ui/widgets/ad_container.dart
+import 'package:flutter/material.dart';
+
+class AdContainer extends StatelessWidget {
+  final double height;
+
+  const AdContainer({
+    Key? key,
+    required this.height,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: height,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Text(
+          'Advertisement',
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+      ),
+    );
+  }
+}
+
+// ui/themes/app_theme.dart
+import 'package:flutter/material.dart';
+
+class AppTheme {
+  static ThemeData get lightTheme {
+    return ThemeData(
+      primarySwatch: Colors.blue,
+      scaffoldBackgroundColor: Colors.white,
+      appBarTheme: const AppBarTheme(
+        elevation: 0,
+        centerTitle: true,
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+      cardTheme: CardTheme(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  static ThemeData get darkTheme {
+    return ThemeData.dark().copyWith(
+      primaryColor: Colors.blue,
+      scaffoldBackgroundColor: const Color(0xFF121212),
+      appBarTheme: const AppBarTheme(
+        elevation: 0,
+        centerTitle: true,
+        backgroundColor: Color(0xFF1F1F1F),
+        foregroundColor: Colors.white,
+      ),
+      cardTheme: CardTheme(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        color: const Color(0xFF2C2C2C),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          backgroundColor: Colors.blue,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        ),
+      ),
+    );
+  }
+}
+
+// utils/constants.dart
+class Constants {
+  static const String appName = 'Status & Video Downloader';
+  static const String defaultDownloadPath = '/storage/emulated/0/Download/VideoDownloader';
+  
+  // WhatsApp paths
+  static const String whatsAppStatusPath = '/storage/emulated/0/WhatsApp/Media/.Statuses';
+  static const String whatsAppBusinessStatusPath = '/storage/emulated/0/WhatsApp Business/Media/.Statuses';
+  
+  // Alternative WhatsApp paths (Android 11+)
+  static const String altWhatsAppStatusPath = '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/.Statuses';
+  static const String altWhatsAppBusinessStatusPath = '/storage/emulated/0/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.Statuses';
+  
+  // Supported social media apps
+  static const Map<String, String> socialMediaPackages = {
+    'instagram': 'com.instagram.android',
+    'facebook': 'com.facebook.katana',
+    'tiktok': 'com.zhiliaoapp.musically',
+    'twitter': 'com.twitter.android',
+    'youtube': 'com.google.android.youtube',
+  };
+}
+
+// utils/url_extractor.dart
+class UrlExtractor {
+  static String detectPlatform(String url) {
+    url = url.toLowerCase();
+    
+    if (url.contains('instagram.com') || url.contains('instagr.am')) {
+      return 'instagram';
+    } else if (url.contains('facebook.com') || url.contains('fb.com') || url.contains('fb.watch')) {
+      return 'facebook';
+    } else if (url.contains('tiktok.com')) {
+      return 'tiktok';
+    } else if (url.contains('twitter.com') || url.contains('t.co')) {
+      return 'twitter';
+    } else if (url.contains('youtube.com') || url.contains('youtu.be')) {
+      return 'youtube';
+    } else {
+      return 'unknown';
+    }
+  }
+  
+  static bool isValidUrl(String url) {
+    final RegExp urlRegExp = RegExp(
+      r'^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$'
+    );
+    return urlRegExp.hasMatch(url);
+  }
+}
+
+// utils/file_utils.dart
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+
+class FileUtils {
+  static Future<String> getUniqueFileName(String directory, String fileName) async {
+    final File file = File(path.join(directory, fileName));
+    if (!await file.exists()) {
+      return fileName;
+    }
+    
+    int counter = 1;
+    String fileNameWithoutExtension = path.basenameWithoutExtension(fileName);
+    String extension = path.extension(fileName);
+    
+    while (true) {
+      final String newFileName = '$fileNameWithoutExtension ($counter)$extension';
+      final File newFile = File(path.join(directory, newFileName));
+      
+      if (!await newFile.exists()) {
+        return newFileName;
+      }
+      
+      counter++;
+    }
+  }
+  
+  // utils/file_utils.dart (continued)
+  static Future<String> getFileSize(String filePath) async {
+    final File file = File(filePath);
+    if (!await file.exists()) {
+      return '0 B';
+    }
+    
+    final int bytes = await file.length();
+    if (bytes < 1024) {
+      return '$bytes B';
+    } else if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(2)} KB';
+    } else if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+    } else {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+  }
+  
+  static Future<void> deleteFile(String filePath) async {
+    final File file = File(filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+  
+  static Future<void> renameFile(String oldPath, String newPath) async {
+    final File file = File(oldPath);
+    if (await file.exists()) {
+      await file.rename(newPath);
+    }
+  }
+  
+  static Future<bool> checkDiskSpace(int requiredBytes) async {
+    try {
+      final Directory? directory = await getExternalStorageDirectory();
+      if (directory == null) return false;
+      
+      // This is a simplification - in production you'd use a plugin to check available disk space
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+}
+
+// providers/download_provider.dart
+import 'package:flutter/material.dart';
+import '../models/download_item.dart';
+import '../services/download_service.dart';
+import '../services/notification_service.dart';
+
+class DownloadProvider extends ChangeNotifier {
+  final List<DownloadItem> _downloads = [];
+  final DownloadService _downloadService = DownloadService();
+  final NotificationService _notificationService = NotificationService();
+  
+  List<DownloadItem> get downloads => [..._downloads];
+  
+  Future<void> downloadFromUrl(String url) async {
+    // Create a temporary item for the UI
+    final String uniqueId = DateTime.now().millisecondsSinceEpoch.toString();
+    final DownloadItem tempItem = DownloadItem(
+      id: uniqueId,
+      url: url,
+      fileName: 'download_$uniqueId.mp4',
+      thumbnailUrl: '',
+      sourceApp: '', // Will be determined later
+      dateAdded: DateTime.now(),
+      status: DownloadStatus.pending,
+    );
+    
+    _downloads.add(tempItem);
+    notifyListeners();
+    
+    // Show notification
+    _notificationService.showDownloadProgressNotification(
+      id: int.parse(uniqueId.substring(uniqueId.length - 9)),
+      title: 'Downloading media',
+      progress: 0.0,
+    );
+    
+    try {
+      final DownloadItem downloadItem = await _downloadService.downloadMedia(url);
+      
+      // Update the item in our list
+      final int index = _downloads.indexWhere((item) => item.id == uniqueId);
+      if (index >= 0) {
+        _downloads[index] = downloadItem;
+      }
+      
+      // Show completion notification
+      _notificationService.showDownloadNotification(
+        id: int.parse(uniqueId.substring(uniqueId.length - 9)),
+        title: 'Download Complete',
+        body: downloadItem.fileName,
+        isComplete: true,
+      );
+      
+      notifyListeners();
+    } catch (e) {
+      // Update status to failed
+      final int index = _downloads.indexWhere((item) => item.id == uniqueId);
+      if (index >= 0) {
+        _downloads[index] = _downloads[index].copyWith(
+          status: DownloadStatus.failed
+        );
+      }
+      
+      // Show error notification
+      _notificationService.showDownloadNotification(
+        id: int.parse(uniqueId.substring(uniqueId.length - 9)),
+        title: 'Download Failed',
+        body: 'Could not download media from $url',
+        isComplete: false,
+      );
+      
+      notifyListeners();
+    }
+  }
+  
+  void cancelDownload(String id) {
+    final int index = _downloads.indexWhere((item) => item.id == id);
+    if (index >= 0) {
+      _downloads[index] = _downloads[index].copyWith(
+        status: DownloadStatus.canceled
+      );
+      
+      // In a real app, you would cancel the actual download process here
+      
+      notifyListeners();
+    }
+  }
+  
+  void removeDownload(String id) {
+    _downloads.removeWhere((item) => item.id == id);
+    notifyListeners();
+  }
+  
+  Future<void> retryDownload(String id) async {
+    final int index = _downloads.indexWhere((item) => item.id == id);
+    if (index >= 0) {
+      final String url = _downloads[index].url;
+      await downloadFromUrl(url);
+      removeDownload(id);
+    }
+  }
+}
+
+// providers/settings_provider.dart
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/constants.dart';
+
+class SettingsProvider extends ChangeNotifier {
+  bool _showNotifications = true;
+  bool _autoDetectLinks = true;
+  bool _showFloatingButton = true;
+  String _downloadPath = Constants.defaultDownloadPath;
+  
+  // Getters
+  bool get showNotifications => _showNotifications;
+  bool get autoDetectLinks => _autoDetectLinks;
+  bool get showFloatingButton => _showFloatingButton;
+  String get downloadPath => _downloadPath;
+  
+  // Constructor loads settings
+  SettingsProvider() {
+    _loadSettings();
+  }
+  
+  Future<void> _loadSettings() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    
+    _showNotifications = prefs.getBool('show_notifications') ?? true;
+    _autoDetectLinks = prefs.getBool('auto_detect_links') ?? true;
+    _showFloatingButton = prefs.getBool('show_floating_button') ?? true;
+    _downloadPath = prefs.getString('download_path') ?? Constants.defaultDownloadPath;
+    
+    notifyListeners();
+  }
+  
+  Future<void> setShowNotifications(bool value) async {
+    _showNotifications = value;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_notifications', value);
+    notifyListeners();
+  }
+  
+  Future<void> setAutoDetectLinks(bool value) async {
+    _autoDetectLinks = value;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_detect_links', value);
+    notifyListeners();
+  }
+  
+  Future<void> setShowFloatingButton(bool value) async {
+    _showFloatingButton = value;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('show_floating_button', value);
+    notifyListeners();
+  }
+  
+  Future<void> setDownloadPath(String path) async {
+    _downloadPath = path;
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString('download_path', path);
+    notifyListeners();
+  }
+}
+
+// pubspec.yaml
+name: status_video_downloader
+description: A social media content downloader app
+
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+version: 1.0.0+1
+
+environment:
+  sdk: ">=2.17.0 <3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.5
+  provider: ^6.0.5
+  path_provider: ^2.0.15
+  permission_handler: ^10.3.0
+  flutter_local_notifications: ^14.1.1
+  shared_preferences: ^2.1.2
+  dio: ^5.2.0
+  path: ^1.8.3
+  url_launcher: ^6.1.11
+  share_plus: ^7.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.1
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/icons/
+    - assets/images/
