@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "304792745260",
+    "project_id": "social-downloader-2d02b",
+    "storage_bucket": "social-downloader-2d02b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:304792745260:android:c862df45e9fc2f81d8a889",
+        "android_client_info": {
+          "package_name": "com.example.all_social_downloader"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBh6CwgO1BCtkwVQHjbc4nUCGIMCDHbRrs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
