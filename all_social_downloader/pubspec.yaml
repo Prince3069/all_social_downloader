@@ -29,6 +29,11 @@ dependencies:
   url_launcher: ^6.1.11
   share_plus: ^7.0.2
   firebase_core: ^3.13.0
+  # Update win32 to a more recent version
+  win32: ^5.0.0  # Using a newer version
+  
+  # If you're using collection, ensure it's included
+  collection: ^1.17.0  # Include collection for UnmodifiableUint8ListView
 
 dev_dependencies:
   flutter_test:
