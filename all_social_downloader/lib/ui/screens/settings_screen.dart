@@ -140,10 +140,10 @@ class SettingsScreen extends StatelessWidget {
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.info),
-                title: const Text('Version'),
-                subtitle: const Text('1.0.0'),
+              const ListTile(
+                leading: Icon(Icons.info),
+                title: Text('Version'),
+                subtitle: Text('1.0.0'),
               ),
               ListTile(
                 leading: const Icon(Icons.privacy_tip),

@@ -281,7 +281,7 @@ class _DownloadButtonOverlayState extends State<DownloadButtonOverlay> {
     downloadProvider.downloadFromUrl(url);
 
     // Simulate a path where the video would be downloaded
-    final String videoPath = '/storage/emulated/0/Download/sample_video.mp4';
+    const String videoPath = '/storage/emulated/0/Download/sample_video.mp4';
 
     // Show mini player window with the required videoPath parameter
     showDialog(

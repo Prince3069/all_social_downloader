@@ -32,7 +32,7 @@ class StorageService {
     try {
       // Simulated download for code sample
       for (int i = 0; i < 10; i++) {
-        await Future.delayed(Duration(milliseconds: 100));
+        await Future.delayed(const Duration(milliseconds: 100));
         onProgress(i / 10);
       }
 

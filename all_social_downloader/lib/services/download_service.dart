@@ -1,6 +1,4 @@
 // services/download_service.dart
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import '../models/download_item.dart';
 import '../utils/url_extractor.dart';
 import 'storage_service.dart';

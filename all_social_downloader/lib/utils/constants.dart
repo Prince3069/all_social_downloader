@@ -3,7 +3,15 @@ class Constants {
   static const String appName = 'Status & Video Downloader';
   static const String defaultDownloadPath =
       '/storage/emulated/0/Download/VideoDownloader';
-
+  // static const String USER_AGENT =
+  //     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+  // static const String MOBILE_USER_AGENT =
+  //     'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1';
+  // // other constants...
+  static const String USER_AGENT =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36';
+  static const String MOBILE_USER_AGENT =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 14_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1';
   // WhatsApp paths
   static const String whatsAppStatusPath =
       '/storage/emulated/0/WhatsApp/Media/.Statuses';

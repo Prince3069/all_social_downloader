@@ -1,18 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import '../models/status_item.dart';
+import '../../models/status_item.dart';
 
 class StatusGrid extends StatelessWidget {
   final List<StatusItem> statuses;
   final Function(StatusItem) onTap;
 
-  const StatusGrid({required this.statuses, required this.onTap});
+  const StatusGrid({super.key, required this.statuses, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
       itemCount: statuses.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         mainAxisSpacing: 4,
         crossAxisSpacing: 4,
@@ -26,8 +26,8 @@ class StatusGrid extends StatelessWidget {
             children: [
               Image.file(File(item.path), fit: BoxFit.cover),
               if (item.isVideo)
-                Padding(
-                  padding: const EdgeInsets.all(4.0),
+                const Padding(
+                  padding: EdgeInsets.all(4.0),
                   child: Icon(Icons.videocam, color: Colors.white),
                 ),
             ],

@@ -208,8 +208,6 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import '../../providers/download_provider.dart';
 import '../../models/download_item.dart';
-import '../../models/status_item.dart';
-import '../../services/storage_service.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});

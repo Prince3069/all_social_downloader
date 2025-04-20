@@ -33,7 +33,7 @@ import 'providers/download_provider.dart';
 import 'providers/settings_provider.dart';
 import 'services/notification_service.dart';
 import 'services/permission_service.dart';
-import 'package:device_info_plus/device_info_plus.dart'; // Add this import
+// Add this import
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

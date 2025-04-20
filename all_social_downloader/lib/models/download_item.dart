@@ -28,12 +28,12 @@ class DownloadItem {
     double? progress,
   }) {
     return DownloadItem(
-      id: this.id,
-      url: this.url,
-      fileName: this.fileName,
-      thumbnailUrl: this.thumbnailUrl,
-      sourceApp: this.sourceApp,
-      dateAdded: this.dateAdded,
+      id: id,
+      url: url,
+      fileName: fileName,
+      thumbnailUrl: thumbnailUrl,
+      sourceApp: sourceApp,
+      dateAdded: dateAdded,
       localPath: localPath ?? this.localPath,
       status: status ?? this.status,
       progress: progress ?? this.progress,

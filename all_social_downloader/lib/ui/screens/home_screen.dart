@@ -129,9 +129,9 @@ class _HomeContentState extends State<HomeContent> {
               decoration: InputDecoration(
                 labelText: 'Paste video URL',
                 hintText: 'https://...',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
-                  icon: Icon(Icons.paste),
+                  icon: const Icon(Icons.paste),
                   onPressed: () async {
                     // Paste from clipboard
                   },
